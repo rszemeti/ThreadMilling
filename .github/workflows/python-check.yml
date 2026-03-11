@@ -1,0 +1,22 @@
+name: Python Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Syntax check
+        run: |
+          python -m py_compile ThreadMilling.py thread_milling.py thread_milling_cli.py thread_milling_gui.py

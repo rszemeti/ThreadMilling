@@ -1,0 +1,14 @@
+{
+  "hole_file": "",
+  "output_file": "C:\\Users\\robin\\Documents\\github\\ThreadMilling\\thread_output_external.ngc",
+  "thread_type": "External",
+  "direction": "top_down",
+  "thread_hand": "right",
+  "depth": "10.0",
+  "major_diameter": "37.514",
+  "pitch": "1.5",
+  "cutter_diameter": "10.0",
+  "passes": "2",
+  "window_width": 900,
+  "window_height": 680
+}
