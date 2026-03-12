@@ -4,6 +4,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -13,13 +14,19 @@ permissions:
 jobs:
   build-and-release:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           python-version: '3.11'
 
@@ -39,6 +46,18 @@ jobs:
             --output-dir=dist `
             --output-filename=ThreadMillingGUI.exe `
             thread_milling_gui.py
+
+      - name: Verify dist output
+        shell: pwsh
+        run: |
+          Write-Host "Workspace: $PWD"
+          if (Test-Path "dist/ThreadMillingGUI.exe") {
+            Get-Item "dist/ThreadMillingGUI.exe" | Format-List FullName,Length,LastWriteTime
+          } else {
+            Write-Host "dist directory contents:"
+            if (Test-Path "dist") { Get-ChildItem -Recurse "dist" | Select-Object FullName,Length | Format-Table -AutoSize }
+            throw "Expected output dist/ThreadMillingGUI.exe not found"
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
