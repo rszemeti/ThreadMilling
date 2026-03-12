@@ -1,6 +1,7 @@
 import sys
 import importlib
 import json
+import os
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -27,9 +28,25 @@ class ThreadMillingWindow(QWidget):
         self.milling = ThreadMilling()
         self.generated_gcode = ""
         self.generated_operation_count = 0
-        self.config_path = Path(__file__).with_name("thread_milling_gui_config.json")
+        self.config_path = self._resolve_config_path()
         self._build_ui()
         self.load_settings()
+        self.log.append(f"ℹ️ Settings file: {self.config_path}")
+
+    def _resolve_config_path(self):
+        app_name = "ThreadMilling"
+        config_file = "thread_milling_gui_config.json"
+
+        if os.name == "nt":
+            base_dir = os.getenv("APPDATA")
+            if base_dir:
+                return Path(base_dir) / app_name / config_file
+        else:
+            xdg = os.getenv("XDG_CONFIG_HOME")
+            if xdg:
+                return Path(xdg) / app_name / config_file
+
+        return Path.home() / ".config" / app_name / config_file
 
     def _build_ui(self):
         self.setWindowTitle("Thread Milling GUI")
@@ -124,6 +141,7 @@ class ThreadMillingWindow(QWidget):
 
     def save_settings(self):
         try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
             self.config_path.write_text(
                 json.dumps(self._collect_settings(), indent=2),
                 encoding="utf-8",
@@ -132,11 +150,17 @@ class ThreadMillingWindow(QWidget):
             self.log.append(f"⚠️ Could not save settings: {exc}")
 
     def load_settings(self):
-        if not self.config_path.exists():
+        config_to_load = self.config_path
+        legacy_path = Path(__file__).with_name("thread_milling_gui_config.json")
+
+        if not config_to_load.exists() and legacy_path.exists():
+            config_to_load = legacy_path
+
+        if not config_to_load.exists():
             return
 
         try:
-            data = json.loads(self.config_path.read_text(encoding="utf-8"))
+            data = json.loads(config_to_load.read_text(encoding="utf-8"))
         except Exception as exc:
             self.log.append(f"⚠️ Could not load settings: {exc}")
             return
