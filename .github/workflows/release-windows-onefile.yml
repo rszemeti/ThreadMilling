@@ -56,16 +56,21 @@ jobs:
             throw "Executable not found for smoke test: $exe"
           }
 
-          $log = Join-Path $PWD "dist/smoke-test.log"
-          $proc = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $log -RedirectStandardError $log
+          $stdoutLog = Join-Path $PWD "dist/smoke-test.stdout.log"
+          $stderrLog = Join-Path $PWD "dist/smoke-test.stderr.log"
+          $proc = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
           Start-Sleep -Seconds 5
 
           if ($proc.HasExited) {
             $code = $proc.ExitCode
             Write-Host "Executable exited during startup smoke test (exit code: $code)."
-            if (Test-Path $log) {
-              Write-Host "---- smoke-test.log ----"
-              Get-Content $log
+            if (Test-Path $stdoutLog) {
+              Write-Host "---- smoke-test.stdout.log ----"
+              Get-Content $stdoutLog
+            }
+            if (Test-Path $stderrLog) {
+              Write-Host "---- smoke-test.stderr.log ----"
+              Get-Content $stderrLog
             }
             throw "Smoke test failed: executable crashed on startup"
           }
@@ -85,6 +90,16 @@ jobs:
             throw "Expected output dist/ThreadMillingGUI.exe not found"
           }
 
+      - name: Upload smoke-test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThreadMillingGUI-smoke-logs
+          path: |
+            dist/smoke-test.stdout.log
+            dist/smoke-test.stderr.log
+          if-no-files-found: ignore
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -92,6 +107,7 @@ jobs:
           path: dist/ThreadMillingGUI.exe
 
       - name: Upload to existing GitHub Release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
