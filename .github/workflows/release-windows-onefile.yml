@@ -39,14 +39,22 @@ jobs:
       - name: Build one-file executable
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
           python -m nuitka `
             --onefile `
             --enable-plugin=pyside6 `
+            --assume-yes-for-downloads `
+            --show-progress `
+            --show-scons `
             --include-qt-plugins=platforms,styles,imageformats `
             --windows-console-mode=attach `
             --output-dir=dist `
             --output-filename=ThreadMillingGUI.exe `
-            thread_milling_gui.py
+            thread_milling_gui.py 2>&1 | Tee-Object -FilePath dist/nuitka-build.log
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Nuitka build failed with exit code $LASTEXITCODE"
+          }
 
       - name: Verify dist output
         shell: pwsh
@@ -61,18 +69,21 @@ jobs:
           }
 
       - name: Upload build artifact
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ThreadMillingGUI-windows-onefile
           path: dist/ThreadMillingGUI.exe
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Smoke test executable startup
+        if: always()
         shell: pwsh
         run: |
           $exe = Join-Path $PWD "dist/ThreadMillingGUI.exe"
           if (-not (Test-Path $exe)) {
-            throw "Executable not found for smoke test: $exe"
+            Write-Host "Skipping smoke test: executable not found at $exe"
+            exit 0
           }
 
           $stdoutLog = Join-Path $PWD "dist/smoke-test.stdout.log"
@@ -116,13 +127,30 @@ jobs:
         with:
           name: ThreadMillingGUI-smoke-logs
           path: |
+            dist/nuitka-build.log
             dist/smoke-test.stdout.log
             dist/smoke-test.stderr.log
             dist-diagnostics.txt
           if-no-files-found: ignore
 
+      - name: Upload dist contents for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ThreadMillingGUI-dist-contents
+          path: dist/**
+          if-no-files-found: ignore
+
+      - name: Fail if executable missing
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/ThreadMillingGUI.exe")) {
+            throw "Build did not produce dist/ThreadMillingGUI.exe. Check artifact ThreadMillingGUI-smoke-logs (nuitka-build.log)."
+          }
+
       - name: Upload to existing GitHub Release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
