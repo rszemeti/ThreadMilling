@@ -5,6 +5,12 @@ env:
 
 on:
   workflow_dispatch:
+    inputs:
+      debug:
+        description: Enable verbose build/runtime diagnostics
+        required: false
+        default: false
+        type: boolean
   release:
     types: [published]
 
@@ -16,6 +22,7 @@ jobs:
     runs-on: windows-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      DEBUG_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.debug == true }}
 
     steps:
       - name: Checkout
@@ -36,21 +43,51 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install PySide6 Nuitka zstandard
 
+      - name: Capture build environment
+        if: env.DEBUG_BUILD == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $envLog = Join-Path $PWD "dist/build-environment.log"
+          "Workspace: $PWD" | Out-File -FilePath $envLog -Encoding utf8
+          "Runner OS: $env:RUNNER_OS" | Out-File -FilePath $envLog -Append -Encoding utf8
+          "Runner Arch: $env:RUNNER_ARCH" | Out-File -FilePath $envLog -Append -Encoding utf8
+          "---- Python ----" | Out-File -FilePath $envLog -Append -Encoding utf8
+          python --version 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          python -m pip --version 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          python -m nuitka --version 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          "---- Installed packages ----" | Out-File -FilePath $envLog -Append -Encoding utf8
+          python -m pip list 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          "---- MSVC tools ----" | Out-File -FilePath $envLog -Append -Encoding utf8
+          where.exe cl 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          where.exe link 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf8
+          "---- Environment vars ----" | Out-File -FilePath $envLog -Append -Encoding utf8
+          Get-ChildItem Env: | Sort-Object Name | Format-Table -AutoSize | Out-String | Out-File -FilePath $envLog -Append -Encoding utf8
+
       - name: Build one-file executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          python -m nuitka `
-            --onefile `
-            --enable-plugin=pyside6 `
-            --assume-yes-for-downloads `
-            --show-progress `
-            --show-scons `
-            --include-qt-plugins=platforms,styles,imageformats `
-            --windows-console-mode=attach `
-            --output-dir=dist `
-            --output-filename=ThreadMillingGUI.exe `
-            thread_milling_gui.py 2>&1 | Tee-Object -FilePath dist/nuitka-build.log
+
+          $nuitkaArgs = @(
+            "--onefile",
+            "--enable-plugin=pyside6",
+            "--assume-yes-for-downloads",
+            "--include-qt-plugins=platforms,styles,imageformats",
+            "--windows-console-mode=attach",
+            "--output-dir=dist",
+            "--output-filename=ThreadMillingGUI.exe",
+            "thread_milling_gui.py"
+          )
+
+          if ($env:DEBUG_BUILD -eq "true") {
+            $nuitkaArgs += "--show-progress"
+            $nuitkaArgs += "--show-scons"
+            $nuitkaArgs += "--report=dist/nuitka-report.xml"
+            python -m nuitka @nuitkaArgs 2>&1 | Tee-Object -FilePath dist/nuitka-build.log
+          } else {
+            python -m nuitka @nuitkaArgs
+          }
 
           if ($LASTEXITCODE -ne 0) {
             throw "Nuitka build failed with exit code $LASTEXITCODE"
@@ -86,6 +123,16 @@ jobs:
             exit 0
           }
 
+          if ($env:DEBUG_BUILD -eq "true") {
+            $metaLog = Join-Path $PWD "dist/exe-metadata.log"
+            "---- EXE metadata ----" | Out-File -FilePath $metaLog -Encoding utf8
+            Get-Item $exe | Format-List FullName,Length,CreationTimeUtc,LastWriteTimeUtc,VersionInfo | Out-String | Out-File -FilePath $metaLog -Append -Encoding utf8
+            Get-FileHash -Algorithm SHA256 $exe | Format-List | Out-String | Out-File -FilePath $metaLog -Append -Encoding utf8
+
+            $env:QT_DEBUG_PLUGINS = "1"
+            $env:QT_LOGGING_RULES = "qt.qpa.*=true"
+          }
+
           $stdoutLog = Join-Path $PWD "dist/smoke-test.stdout.log"
           $stderrLog = Join-Path $PWD "dist/smoke-test.stderr.log"
           $proc = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
@@ -109,7 +156,7 @@ jobs:
           Write-Host "Smoke test passed: executable stayed alive for 5 seconds."
 
       - name: Capture dist diagnostics
-        if: always()
+        if: always() && env.DEBUG_BUILD == 'true'
         shell: pwsh
         run: |
           $diag = Join-Path $PWD "dist-diagnostics.txt"
@@ -122,19 +169,22 @@ jobs:
           }
 
       - name: Upload smoke-test logs
-        if: always()
+        if: always() && env.DEBUG_BUILD == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: ThreadMillingGUI-smoke-logs
           path: |
             dist/nuitka-build.log
+            dist/build-environment.log
+            dist/nuitka-report.xml
+            dist/exe-metadata.log
             dist/smoke-test.stdout.log
             dist/smoke-test.stderr.log
             dist-diagnostics.txt
           if-no-files-found: ignore
 
       - name: Upload dist contents for diagnosis
-        if: always()
+        if: always() && env.DEBUG_BUILD == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: ThreadMillingGUI-dist-contents
