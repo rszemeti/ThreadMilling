@@ -42,10 +42,36 @@ jobs:
           python -m nuitka `
             --onefile `
             --enable-plugin=pyside6 `
-            --windows-console-mode=disable `
+            --include-qt-plugins=platforms,styles,imageformats `
+            --windows-console-mode=attach `
             --output-dir=dist `
             --output-filename=ThreadMillingGUI.exe `
             thread_milling_gui.py
+
+      - name: Smoke test executable startup
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "dist/ThreadMillingGUI.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Executable not found for smoke test: $exe"
+          }
+
+          $log = Join-Path $PWD "dist/smoke-test.log"
+          $proc = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $log -RedirectStandardError $log
+          Start-Sleep -Seconds 5
+
+          if ($proc.HasExited) {
+            $code = $proc.ExitCode
+            Write-Host "Executable exited during startup smoke test (exit code: $code)."
+            if (Test-Path $log) {
+              Write-Host "---- smoke-test.log ----"
+              Get-Content $log
+            }
+            throw "Smoke test failed: executable crashed on startup"
+          }
+
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "Smoke test passed: executable stayed alive for 5 seconds."
 
       - name: Verify dist output
         shell: pwsh
